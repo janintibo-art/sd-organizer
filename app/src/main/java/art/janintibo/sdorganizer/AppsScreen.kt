@@ -3,6 +3,8 @@ package art.janintibo.sdorganizer
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
-private enum class Filtre { INSTALLEES, DEPLACABLES, SYSTEME }
+private enum class Filtre { INSTALLEES, DEPLACABLES, SUR_CARTE, SYSTEME }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,7 +64,9 @@ fun EcranApplications(
         applis.filter { app ->
             val passeFiltre = when (filtre) {
                 Filtre.INSTALLEES -> app.deplacable != Deplacable.SYSTEME
-                Filtre.DEPLACABLES -> app.deplacable == Deplacable.OUI
+                Filtre.DEPLACABLES -> app.deplacable == Deplacable.OUI &&
+                    app.emplacement == Emplacement.INTERNE
+                Filtre.SUR_CARTE -> app.emplacement == Emplacement.CARTE_SD
                 Filtre.SYSTEME -> app.deplacable == Deplacable.SYSTEME
             }
             passeFiltre && (terme.isEmpty() ||
@@ -84,11 +88,21 @@ fun EcranApplications(
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Puce("Installées", filtre == Filtre.INSTALLEES) { filtre = Filtre.INSTALLEES }
                 Puce("Déplaçables", filtre == Filtre.DEPLACABLES) { filtre = Filtre.DEPLACABLES }
+                Puce("Sur la carte", filtre == Filtre.SUR_CARTE) { filtre = Filtre.SUR_CARTE }
                 Puce("Système", filtre == Filtre.SYSTEME) { filtre = Filtre.SYSTEME }
             }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = resume(filtre, visibles.size, visibles.sumOf { it.octets }),
+                style = MaterialTheme.typography.bodySmall,
+                color = Brume
+            )
         }
 
         if (chargement) {
@@ -162,8 +176,18 @@ fun EcranApplications(
             if (visibles.isEmpty()) {
                 item {
                     LigneVide(
-                        titre = "Rien à afficher",
-                        aide = "Aucune application ne correspond à ce filtre."
+                        titre = when (filtre) {
+                            Filtre.DEPLACABLES -> "Plus rien à déplacer"
+                            Filtre.SUR_CARTE -> "Carte SD vide d'applications"
+                            else -> "Rien à afficher"
+                        },
+                        aide = when (filtre) {
+                            Filtre.DEPLACABLES ->
+                                "Aucune application éligible ne reste en mémoire interne."
+                            Filtre.SUR_CARTE ->
+                                "Aucune application n'est installée sur la carte pour l'instant."
+                            else -> "Aucune application ne correspond à cette recherche."
+                        }
                     )
                 }
             }
@@ -183,7 +207,7 @@ private fun Puce(texte: String, choisi: Boolean, onClick: () -> Unit) {
         selected = choisi,
         onClick = onClick,
         shape = RoundedCornerShape(9.dp),
-        label = { Text(texte, style = MaterialTheme.typography.labelLarge) },
+        label = { Text(texte, style = MaterialTheme.typography.labelLarge, maxLines = 1) },
         colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = Petrole,
             selectedLabelColor = Blanc,
@@ -263,4 +287,15 @@ private fun LigneApplication(app: AppEntry, onClick: () -> Unit) {
             color = Ardoise
         )
     }
+}
+
+private fun resume(filtre: Filtre, nombre: Int, octets: Long): String {
+    if (nombre == 0) return "Aucune application"
+    val sujet = when (filtre) {
+        Filtre.INSTALLEES -> if (nombre == 1) "application installée" else "applications installées"
+        Filtre.DEPLACABLES -> if (nombre == 1) "application à déplacer" else "applications à déplacer"
+        Filtre.SUR_CARTE -> if (nombre == 1) "application sur la carte" else "applications sur la carte"
+        Filtre.SYSTEME -> if (nombre == 1) "application système" else "applications système"
+    }
+    return nombre.toString() + " " + sujet + " · " + taille(octets)
 }
