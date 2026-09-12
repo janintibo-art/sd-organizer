@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -20,13 +22,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -34,9 +30,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import kotlinx.coroutines.launch
-
-private enum class Onglet { ACCUEIL, APPLIS, FICHIERS }
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,57 +45,19 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Application() {
+private fun Application(etat: EtatViewModel = viewModel()) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    var onglet by remember { mutableStateOf(Onglet.ACCUEIL) }
-    var cycle by remember { mutableIntStateOf(0) }
-
-    var interne by remember { mutableStateOf<VolumeInfo?>(null) }
-    var sd by remember { mutableStateOf<VolumeInfo?>(null) }
-    var accesFichiers by remember { mutableStateOf(false) }
-    var accesStatistiques by remember { mutableStateOf(false) }
-
-    var applis by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
-    var chargementApplis by remember { mutableStateOf(true) }
-
-    var dossiers by remember { mutableStateOf<List<DossierEntry>>(emptyList()) }
-    var chargementDossiers by remember { mutableStateOf(true) }
-
-    var progression by remember { mutableStateOf<Progression?>(null) }
-    var bilan by remember { mutableStateOf<Bilan?>(null) }
 
     val proprietaire = LocalLifecycleOwner.current
     DisposableEffect(proprietaire) {
         val observateur = LifecycleEventObserver { _, evenement ->
-            if (evenement == Lifecycle.Event.ON_RESUME) cycle++
+            if (evenement == Lifecycle.Event.ON_RESUME) etat.reprendre()
         }
         proprietaire.lifecycle.addObserver(observateur)
         onDispose { proprietaire.lifecycle.removeObserver(observateur) }
     }
 
-    LaunchedEffect(cycle) {
-        accesFichiers = Storage.accesFichiers()
-        accesStatistiques = Storage.accesStatistiques(context)
-        interne = Storage.interne(context)
-        sd = Storage.carteSd(context)
-
-        chargementApplis = true
-        applis = Apps.lire(context, avecSysteme = true)
-        chargementApplis = false
-
-        if (accesFichiers) {
-            chargementDossiers = true
-            dossiers = Fichiers.scanner()
-            chargementDossiers = false
-        } else {
-            dossiers = emptyList()
-            chargementDossiers = false
-        }
-    }
-
-    val titre = when (onglet) {
+    val titre = when (etat.onglet) {
         Onglet.ACCUEIL -> "SD Organizer"
         Onglet.APPLIS -> "Applications"
         Onglet.FICHIERS -> "Fichiers"
@@ -117,6 +73,29 @@ private fun Application() {
                         style = MaterialTheme.typography.titleLarge
                     )
                 },
+                actions = {
+                    if (etat.occupe) {
+                        Box(
+                            modifier = Modifier.size(48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = Blanc,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = { etat.rafraichir() }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_refresh),
+                                contentDescription = "Actualiser",
+                                tint = Blanc,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Petrole,
                     titleContentColor = Blanc
@@ -128,18 +107,18 @@ private fun Application() {
                 Onglets(
                     icone = R.drawable.ic_home,
                     texte = "Accueil",
-                    choisi = onglet == Onglet.ACCUEIL
-                ) { onglet = Onglet.ACCUEIL }
+                    choisi = etat.onglet == Onglet.ACCUEIL
+                ) { etat.onglet = Onglet.ACCUEIL }
                 Onglets(
                     icone = R.drawable.ic_apps,
                     texte = "Applications",
-                    choisi = onglet == Onglet.APPLIS
-                ) { onglet = Onglet.APPLIS }
+                    choisi = etat.onglet == Onglet.APPLIS
+                ) { etat.onglet = Onglet.APPLIS }
                 Onglets(
                     icone = R.drawable.ic_folder,
                     texte = "Fichiers",
-                    choisi = onglet == Onglet.FICHIERS
-                ) { onglet = Onglet.FICHIERS }
+                    choisi = etat.onglet == Onglet.FICHIERS
+                ) { etat.onglet = Onglet.FICHIERS }
             }
         }
     ) { marges ->
@@ -148,54 +127,35 @@ private fun Application() {
                 .fillMaxSize()
                 .padding(marges)
         ) {
-            when (onglet) {
+            when (etat.onglet) {
                 Onglet.ACCUEIL -> EcranAccueil(
-                    interne = interne,
-                    sd = sd,
-                    accesFichiers = accesFichiers,
+                    interne = etat.interne,
+                    sd = etat.sd,
+                    accesFichiers = etat.accesFichiers,
                     onDemanderAcces = { Storage.demanderAccesFichiers(context) },
-                    onApplis = { onglet = Onglet.APPLIS },
-                    onFichiers = { onglet = Onglet.FICHIERS }
+                    onApplis = { etat.onglet = Onglet.APPLIS },
+                    onFichiers = { etat.onglet = Onglet.FICHIERS }
                 )
 
                 Onglet.APPLIS -> EcranApplications(
-                    applis = applis,
-                    chargement = chargementApplis,
-                    accesStatistiques = accesStatistiques,
+                    applis = etat.applis,
+                    chargement = etat.chargementApplis,
+                    accesStatistiques = etat.accesStatistiques,
                     onAccesStatistiques = { Storage.demanderAccesStatistiques(context) },
                     onOptionsDeveloppeur = { Storage.ouvrirOptionsDeveloppeur(context) },
                     onOuvrirFiche = { paquet -> Storage.ouvrirFicheApplication(context, paquet) }
                 )
 
                 Onglet.FICHIERS -> EcranFichiers(
-                    dossiers = dossiers,
-                    chargement = chargementDossiers,
-                    sd = sd,
-                    accesFichiers = accesFichiers,
-                    progression = progression,
-                    bilan = bilan,
+                    dossiers = etat.dossiers,
+                    chargement = etat.chargementDossiers,
+                    sd = etat.sd,
+                    accesFichiers = etat.accesFichiers,
+                    progression = etat.progression,
+                    bilan = etat.bilan,
                     onDemanderAcces = { Storage.demanderAccesFichiers(context) },
-                    onFermerBilan = { bilan = null },
-                    onDeplacer = { choisis ->
-                        val carte = sd
-                        if (carte != null) {
-                            scope.launch {
-                                progression = Progression(0, 1, "Préparation")
-                                val resultat = Fichiers.deplacer(
-                                    context = context,
-                                    dossiers = choisis,
-                                    sd = carte
-                                ) { fait, total, nom ->
-                                    if (fait == total || total < 40 || fait % 5 == 0) {
-                                        progression = Progression(fait, total, nom)
-                                    }
-                                }
-                                progression = null
-                                bilan = resultat
-                                cycle++
-                            }
-                        }
-                    }
+                    onFermerBilan = { etat.fermerBilan() },
+                    onDeplacer = { choisis -> etat.deplacer(choisis) }
                 )
             }
         }
